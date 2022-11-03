@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 import os
 import cv2
+from file import Walk, MkdirSimple
+from tqdm import tqdm
 
 
 def fiFindByWildcard(wildcard):
@@ -50,9 +52,16 @@ def imread(path):
     return cv2.imread(path)[:, :, [2, 1, 0]]
 
 
-def imwrite(path, img):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    cv2.imwrite(path, img[:, :, [2, 1, 0]])
+def imwrite(path, name, result, origin):
+    image_file = os.path.join(path, 'light', name)
+    concat_image_file = os.path.join(path, 'concat', name)
+    MkdirSimple(image_file)
+    MkdirSimple(concat_image_file)
+
+    concat_image = np.vstack([origin, result[:, :, [2, 1, 0]]])
+
+    cv2.imwrite(image_file, result[:, :, [2, 1, 0]])
+    cv2.imwrite(concat_image_file, concat_image)
 
 
 def imCropCenter(img, size):
@@ -101,17 +110,18 @@ def main():
     model.netG = model.netG.cuda()
     
     lr_dir = opt['dataroot_unpaired']
-    lr_paths = fiFindByWildcard(os.path.join(lr_dir, '*.*'))
+    lr_paths = Walk(lr_dir, ['jpg', 'jpeg', 'png'])
+    root_len = len(lr_dir.rstrip('/'))
 
     this_dir = os.path.dirname(os.path.realpath(__file__))
     test_dir = os.path.join(this_dir, '..', 'results', conf, args.name)
     print(f"Out dir: {test_dir}")
 
-    for lr_path, idx_test in tqdm.tqdm(zip(lr_paths, range(len(lr_paths)))):
+    for idx_test, lr_path in enumerate(tqdm(lr_paths)):
 
-        lr = imread(lr_path)
-        raw_shape = lr.shape
-        lr, padding_params = auto_padding(lr)
+        lr_org = imread(lr_path)
+        raw_shape = lr_org.shape
+        lr, padding_params = auto_padding(lr_org)
         his = hiseq_color_cv2_img(lr)
         if opt.get("histeq_as_input", False):
             lr = his
@@ -129,8 +139,10 @@ def main():
         sr = rgb(torch.clamp(sr_t, 0, 1)[:, :, padding_params[0]:sr_t.shape[2] - padding_params[1],
                  padding_params[2]:sr_t.shape[3] - padding_params[3]])
         assert raw_shape == sr.shape
-        path_out_sr = os.path.join(test_dir, os.path.basename(lr_path))
-        imwrite(path_out_sr, sr)
+
+        name = lr_path[root_len + 1:]
+        path_out_sr = os.path.join(test_dir, name)
+        imwrite(test_dir, name, sr, lr_org)
 
 
 def format_measurements(meas):
